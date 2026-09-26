@@ -112,13 +112,13 @@ img,canvas{max-width:100%}
   #sidebar .brand{padding:4px 0 20px;flex-direction:column;gap:4px}
   #sidebar .brand b,.brand .closeSb{display:none}
   #sidebar .nav-item{justify-content:center;padding:11px;width:48px}
-  #sidebar .nav-item span:not(.count):not(.dot),#sidebar .nav-label,#sidebar #playlistNav,#sidebar .new-pl span,#sidebar .sb-foot{display:none}
+  #sidebar .nav-item span:not(.count):not(.dot),#sidebar .nav-label,#sidebar #playlistNav,#sidebar .new-pl span,#sidebar .sb-foot,#sidebar #gdriveStatus{display:none}
   #sidebar .nav-item .count,#sidebar .nav-item .dot{position:absolute;top:4px;right:4px;margin:0}
   #sidebar.open{width:var(--drawer-w);align-items:stretch}
   #sidebar.open .brand{flex-direction:row;padding:6px 8px 18px}
   #sidebar.open .brand b,#sidebar.open .closeSb{display:block}
   #sidebar.open .nav-item{justify-content:flex-start;width:100%;padding:11px 10px}
-  #sidebar.open .nav-item span:not(.count):not(.dot),#sidebar.open .nav-label,#sidebar.open #playlistNav,#sidebar.open .new-pl span,#sidebar.open .sb-foot{display:block}
+  #sidebar.open .nav-item span:not(.count):not(.dot),#sidebar.open .nav-label,#sidebar.open #playlistNav,#sidebar.open .new-pl span,#sidebar.open .sb-foot,#sidebar.open #gdriveStatus{display:block}
   #sidebar.open .nav-item .count,#sidebar.open .nav-item .dot{position:static}
   #sidebar.open .new-pl{display:flex}
   #main,#playerbar,#topbar{margin-left:var(--rail-w)}
@@ -357,6 +357,8 @@ canvas#viz{position:relative;width:100%;height:100%;transition:opacity .2s}
 .sr-title{font-size:13px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .sr-sub{font-size:11.5px;color:var(--text-2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .info-cover{width:64px;height:64px;border-radius:12px;flex:none;box-shadow:0 4px 14px rgba(0,0,0,.4)}
+.t-drive-badge{position:absolute;bottom:2px;right:2px;width:15px;height:15px;border-radius:50%;background:rgba(10,10,14,.75);display:flex;align-items:center;justify-content:center;color:#fff}
+.t-drive-badge svg{width:9px;height:9px}
 </style>
 </head>
 <body>
@@ -382,6 +384,11 @@ canvas#viz{position:relative;width:100%;height:100%;transition:opacity .2s}
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 6h13M3 12h9M3 18h13"/></svg>
       <span>Queue</span><span class="count" id="queueCount">0</span>
     </button>
+
+    <div class="nav-label">Cloud</div>
+    <div id="gdriveStatus" style="padding:2px 4px 4px">
+      <button class="btn block" id="gdriveConnectBtn">Connect Google Drive</button>
+    </div>
 
     <div class="nav-label">Smart</div>
     <button class="nav-item" data-smart="recent">
@@ -442,6 +449,7 @@ canvas#viz{position:relative;width:100%;height:100%;transition:opacity .2s}
         <div class="dz-actions">
           <button class="btn primary" id="pickFilesBtn">Choose Files</button>
           <button class="btn" id="pickFolderBtn">Choose Folder</button>
+          <button class="btn" id="pickDriveBtn">☁ Add from Google Drive</button>
         </div>
       </div>
       <div class="list-head"><span style="width:44px"></span><span class="h-title">Title</span></div>
@@ -702,6 +710,28 @@ canvas#viz{position:relative;width:100%;height:100%;transition:opacity .2s}
   </div>
 </div>
 
+<!-- Google Drive Setup Modal -->
+<div class="modal-bg" id="driveSetupModalBg">
+  <div class="modal">
+    <button class="modal-close" data-close="driveSetupModalBg">✕</button>
+    <h2>Connect Google Drive</h2>
+    <p class="sub">This needs your own Google Cloud OAuth credentials — Google doesn't allow a shared key for this. One-time setup:<br>
+      1. Open <b>console.cloud.google.com</b>, create a project.<br>
+      2. Enable the <b>Google Drive API</b> and <b>Google Picker API</b>.<br>
+      3. Create an <b>OAuth Client ID</b> (Web application) — add the URL this page is hosted at as an Authorized JavaScript origin.<br>
+      4. Create an <b>API Key</b> (restrict it to the Picker API).<br>
+      5. On the OAuth consent screen, add your own Google account as a test user.<br>
+      <b>Note:</b> this only works when the page is served over http/https — opening the file directly (file://) won't let Google sign you in.
+    </p>
+    <div class="field"><label>OAuth Client ID</label><input id="gdriveClientIdInput" placeholder="xxxxxxxx.apps.googleusercontent.com"></div>
+    <div class="field"><label>API Key</label><input id="gdriveApiKeyInput" placeholder="AIza…"></div>
+    <div class="modal-actions">
+      <button class="btn" data-close="driveSetupModalBg">Cancel</button>
+      <button class="btn primary" id="gdriveSaveSetupBtn">Save &amp; Connect</button>
+    </div>
+  </div>
+</div>
+
 <!-- Auto-Identify Library Modal -->
 <div class="modal-bg" id="bulkIdentifyModalBg">
   <div class="modal">
@@ -818,7 +848,7 @@ function idbPut(store,val){ return new Promise((res,rej)=>{ const tx=db.transact
 function idbGetAll(store){ return new Promise((res,rej)=>{ const tx=db.transaction(store,'readonly'); const r=tx.objectStore(store).getAll(); r.onsuccess=()=>res(r.result); r.onerror=rej; }); }
 function idbGet(store,key){ return new Promise((res,rej)=>{ const tx=db.transaction(store,'readonly'); const r=tx.objectStore(store).get(key); r.onsuccess=()=>res(r.result); r.onerror=rej; }); }
 async function persistTrackMeta(t){
-  await idbPut('tracks', {id:t.id, name:t.name, title:t.title, artist:t.artist, album:t.album, genre:t.genre||'', duration:t.duration, favorite:t.favorite, color:t.color, coverBlob:t.coverBlob||null, addedAt:t.addedAt, playCount:t.playCount||0, lastPlayed:t.lastPlayed||0, blob:t.fileRef});
+  await idbPut('tracks', {id:t.id, name:t.name, title:t.title, artist:t.artist, album:t.album, genre:t.genre||'', duration:t.duration, favorite:t.favorite, color:t.color, coverBlob:t.coverBlob||null, addedAt:t.addedAt, playCount:t.playCount||0, lastPlayed:t.lastPlayed||0, blob:t.fileRef, source:t.source||'local', driveFileId:t.driveFileId||null});
 }
 async function loadFromDB(){
   db = await openDB();
@@ -826,7 +856,7 @@ async function loadFromDB(){
   rows.forEach(r=>{
     const url = URL.createObjectURL(r.blob);
     const coverUrl = r.coverBlob ? URL.createObjectURL(r.coverBlob) : null;
-    S.tracks.push({id:r.id, name:r.name, title:r.title, artist:r.artist, album:r.album||'', genre:r.genre||'', duration:r.duration, favorite:r.favorite, color:r.color, coverBlob:r.coverBlob||null, coverUrl, addedAt:r.addedAt||0, playCount:r.playCount||0, lastPlayed:r.lastPlayed||0, url, fileRef:r.blob});
+    S.tracks.push({id:r.id, name:r.name, title:r.title, artist:r.artist, album:r.album||'', genre:r.genre||'', duration:r.duration, favorite:r.favorite, color:r.color, coverBlob:r.coverBlob||null, coverUrl, addedAt:r.addedAt||0, playCount:r.playCount||0, lastPlayed:r.lastPlayed||0, url, fileRef:r.blob, source:r.source||'local', driveFileId:r.driveFileId||null});
   });
   const metaRows = await idbGetAll('meta');
   const plRow = metaRows.find(m=>m.key==='playlists');
@@ -906,9 +936,10 @@ function decodeAPIC(bytes){
 }
 
 /* ============ Adding files ============ */
-async function addFiles(fileList){
+async function addFiles(fileList, extra){
   const files = Array.from(fileList).filter(f=> f.type.startsWith('audio/') || /\.(mp3|wav|flac|aac|m4a|ogg)$/i.test(f.name));
   if(!files.length) return;
+  const source = (extra && extra.source) || 'local';
   for(const f of files){
     const id = uid();
     let {title,artist} = parseNameTags(f.name);
@@ -919,7 +950,7 @@ async function addFiles(fileList){
     }
     if(coverBlob) coverUrl = URL.createObjectURL(coverBlob);
     const url = URL.createObjectURL(f);
-    const track = {id, name:f.name, title, artist, album, genre, duration:0, favorite:false, color:colorFor(f.name+id), coverBlob, coverUrl, addedAt:Date.now(), playCount:0, lastPlayed:0, url, fileRef:f};
+    const track = {id, name:f.name, title, artist, album, genre, duration:0, favorite:false, color:colorFor(f.name+id), coverBlob, coverUrl, addedAt:Date.now(), playCount:0, lastPlayed:0, url, fileRef:f, source, driveFileId:(extra && extra.driveFileId) || null};
     S.tracks.push(track);
     await persistTrackMeta(track);
     const tmp = new Audio(); tmp.src = url;
@@ -1074,10 +1105,13 @@ document.getElementById('topbarActions').addEventListener('click', e=>{
 renderTopbarActions('upload');
 
 /* ============ Render: Library / rows ============ */
+function driveBadge(t){
+  return t.source==='drive' ? `<div class="t-drive-badge"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M7.71 3.5 1.15 15l3.43 6 6.56-11.5zm12.58 0h-6.85l6.86 12h6.85zM8.55 21.5h12.3l-3.43-6H12z"/></svg></div>` : '';
+}
 function trackRowHTML(t){
   const favIcon = t.favorite ? 'on':'';
   return `<div class="track-row ${t.id===S.currentId?'playing':''}" data-id="${t.id}">
-    <div class="t-art" style="${artStyle(t)}"><div class="eq"><i></i><i></i><i></i></div></div>
+    <div class="t-art" style="${artStyle(t)}"><div class="eq"><i></i><i></i><i></i></div>${driveBadge(t)}</div>
     <div class="t-info"><div class="t-title">${escapeHtml(t.title)}</div><div class="t-artist">${escapeHtml(t.artist)}</div></div>
     <div class="t-dur">${fmtTime(t.duration)}</div>
     <button class="t-fav ${favIcon}" data-fav="${t.id}"><svg viewBox="0 0 24 24" fill="${t.favorite?'currentColor':'none'}" stroke="currentColor" stroke-width="1.8"><path d="M20.8 4.6a5.5 5.5 0 0 0-7.8 0L12 5.6l-1-1a5.5 5.5 0 0 0-7.8 7.8l1 1L12 21l7.8-7.6 1-1a5.5 5.5 0 0 0 0-7.8Z"/></svg></button>
@@ -1612,6 +1646,163 @@ document.getElementById('editManualSaveBtn').addEventListener('click', async ()=
   if(S.activeView==='smart') renderSmart();
   updateNowPlayingUI();
 });
+
+/* ============ Google Drive ============ */
+function loadScript(src){
+  return new Promise((resolve,reject)=>{
+    if(document.querySelector(`script[src="${src}"]`)){ resolve(); return; }
+    const s = document.createElement('script');
+    s.src = src; s.async = true; s.onload = ()=>resolve(); s.onerror = ()=>reject(new Error('Failed to load '+src));
+    document.head.appendChild(s);
+  });
+}
+let gDrivePickerReady = false;
+async function ensureGoogleScriptsLoaded(){
+  await Promise.all([
+    (window.google && google.accounts && google.accounts.oauth2) ? Promise.resolve() : loadScript('https://accounts.google.com/gsi/client'),
+    window.gapi ? Promise.resolve() : loadScript('https://apis.google.com/js/api.js')
+  ]);
+  if(!gDrivePickerReady){
+    await new Promise(res=> gapi.load('picker', res));
+    gDrivePickerReady = true;
+  }
+}
+let gDriveTokenClient = null;
+let gDriveAccessToken = null;
+let gDriveTokenExpiry = 0;
+function getDriveAccessToken(interactive){
+  return new Promise(async (resolve,reject)=>{
+    if(gDriveAccessToken && Date.now() < gDriveTokenExpiry - 30000){ resolve(gDriveAccessToken); return; }
+    const clientId = localStorage.getItem('muse_gdrive_client_id');
+    if(!clientId){ reject(new Error('Add your Google Client ID first (Connect Google Drive in the sidebar)')); return; }
+    try{ await ensureGoogleScriptsLoaded(); }catch(e){ reject(e); return; }
+    if(!gDriveTokenClient){
+      gDriveTokenClient = google.accounts.oauth2.initTokenClient({
+        client_id: clientId,
+        scope: 'https://www.googleapis.com/auth/drive.file https://www.googleapis.com/auth/userinfo.profile https://www.googleapis.com/auth/userinfo.email',
+        callback: ()=>{}
+      });
+    }
+    gDriveTokenClient.callback = (resp)=>{
+      if(resp.error){ reject(new Error(resp.error)); return; }
+      gDriveAccessToken = resp.access_token;
+      gDriveTokenExpiry = Date.now() + (resp.expires_in*1000);
+      resolve(gDriveAccessToken);
+    };
+    gDriveTokenClient.requestAccessToken({prompt: interactive===false ? '' : 'consent'});
+  });
+}
+async function fetchGoogleProfile(token){
+  try{
+    const res = await fetch('https://www.googleapis.com/oauth2/v3/userinfo', {headers:{Authorization:'Bearer '+token}});
+    if(!res.ok) return null;
+    return await res.json();
+  }catch(e){ return null; }
+}
+function renderGDriveStatus(profile){
+  const el = document.getElementById('gdriveStatus');
+  if(profile){
+    el.innerHTML = `<div style="display:flex;align-items:center;gap:8px;padding:4px 2px">
+      <img src="${profile.picture||''}" style="width:26px;height:26px;border-radius:50%;background:var(--bg-3);flex:none" onerror="this.style.visibility='hidden'">
+      <div style="min-width:0;flex:1"><div style="font-size:12px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${escapeHtml(profile.name||profile.email||'Connected')}</div></div>
+      <button class="icon-btn subtle" id="gdriveDisconnectBtn" title="Disconnect" style="width:28px;height:28px"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" width="14" height="14"><path d="M18 6 6 18M6 6l12 12"/></svg></button>
+    </div>`;
+    document.getElementById('gdriveDisconnectBtn').addEventListener('click', disconnectGoogleDrive);
+  } else {
+    el.innerHTML = `<button class="btn block" id="gdriveConnectBtn">Connect Google Drive</button>`;
+    document.getElementById('gdriveConnectBtn').addEventListener('click', connectGoogleDrive);
+  }
+}
+async function connectGoogleDrive(){
+  const clientId = localStorage.getItem('muse_gdrive_client_id');
+  const apiKey = localStorage.getItem('muse_gdrive_api_key');
+  if(!clientId || !apiKey){ openModal('driveSetupModalBg'); return; }
+  const btn = document.getElementById('gdriveConnectBtn');
+  if(btn) btn.textContent = 'Connecting…';
+  try{
+    const token = await getDriveAccessToken();
+    const profile = await fetchGoogleProfile(token);
+    renderGDriveStatus(profile || {name:'Connected'});
+  }catch(e){
+    renderGDriveStatus(null);
+    alert('Could not connect to Google: ' + e.message);
+  }
+}
+function disconnectGoogleDrive(){
+  if(window.google && google.accounts && google.accounts.oauth2 && gDriveAccessToken){
+    try{ google.accounts.oauth2.revoke(gDriveAccessToken, ()=>{}); }catch(e){}
+  }
+  gDriveAccessToken = null; gDriveTokenExpiry = 0;
+  renderGDriveStatus(null);
+}
+document.getElementById('gdriveSaveSetupBtn').addEventListener('click', ()=>{
+  const clientId = document.getElementById('gdriveClientIdInput').value.trim();
+  const apiKey = document.getElementById('gdriveApiKeyInput').value.trim();
+  if(!clientId || !apiKey){ alert('Both the Client ID and API Key are needed.'); return; }
+  localStorage.setItem('muse_gdrive_client_id', clientId);
+  localStorage.setItem('muse_gdrive_api_key', apiKey);
+  gDriveTokenClient = null; gDrivePickerReady = false;
+  closeModal('driveSetupModalBg');
+  connectGoogleDrive();
+});
+(function initGDriveSetupFields(){
+  const cid = localStorage.getItem('muse_gdrive_client_id'); const key = localStorage.getItem('muse_gdrive_api_key');
+  if(cid) document.getElementById('gdriveClientIdInput').value = cid;
+  if(key) document.getElementById('gdriveApiKeyInput').value = key;
+})();
+renderGDriveStatus(null);
+
+async function openDrivePicker(){
+  const clientId = localStorage.getItem('muse_gdrive_client_id');
+  const apiKey = localStorage.getItem('muse_gdrive_api_key');
+  if(!clientId || !apiKey){ openModal('driveSetupModalBg'); return; }
+  const btn = document.getElementById('pickDriveBtn');
+  const origText = btn.textContent; btn.textContent = 'Opening Drive…'; btn.disabled = true;
+  try{
+    const token = await getDriveAccessToken();
+    await ensureGoogleScriptsLoaded();
+    const view = new google.picker.DocsView(google.picker.ViewId.DOCS)
+      .setMimeTypes('audio/mpeg,audio/mp4,audio/x-m4a,audio/m4a,audio/wav,audio/x-wav,audio/flac,audio/x-flac,audio/ogg,audio/webm')
+      .setMode(google.picker.DocsViewMode.LIST)
+      .setIncludeFolders(true)
+      .setSelectFolderEnabled(false);
+    const picker = new google.picker.PickerBuilder()
+      .addView(view)
+      .setOAuthToken(token)
+      .setDeveloperKey(apiKey)
+      .enableFeature(google.picker.Feature.MULTISELECT_ENABLED)
+      .setCallback(handleDrivePickerResult)
+      .build();
+    picker.setVisible(true);
+  }catch(e){
+    alert('Could not open Google Drive: ' + e.message);
+  }
+  btn.textContent = origText; btn.disabled = false;
+}
+async function handleDrivePickerResult(data){
+  if(data.action !== google.picker.Action.PICKED) return;
+  const docs = data.docs || [];
+  const btn = document.getElementById('pickDriveBtn');
+  for(let i=0;i<docs.length;i++){
+    btn.textContent = `Importing ${i+1}/${docs.length}…`;
+    await importDriveFile(docs[i]);
+  }
+  btn.textContent = '☁ Add from Google Drive';
+  renderAll();
+}
+async function importDriveFile(doc){
+  try{
+    const token = await getDriveAccessToken(false);
+    const res = await fetch(`https://www.googleapis.com/drive/v3/files/${doc.id}?alt=media`, {headers:{Authorization:'Bearer '+token}});
+    if(!res.ok) throw new Error('Drive download failed ('+res.status+')');
+    const blob = await res.blob();
+    const file = new File([blob], doc.name, {type: doc.mimeType || blob.type || 'audio/mpeg'});
+    await addFiles([file], {source:'drive', driveFileId:doc.id});
+  }catch(e){
+    console.error('Drive import failed for', doc.name, e);
+  }
+}
+document.getElementById('pickDriveBtn').addEventListener('click', openDrivePicker);
 
 /* ============ File input / drag-drop ============ */
 document.getElementById('pickFilesBtn').addEventListener('click', ()=> document.getElementById('fileInput').click());
